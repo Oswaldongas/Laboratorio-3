@@ -1,2 +1,2 @@
-cassandra-driver
-time_uuid
+cassandra-driver>=3.29.0,<4
+time_uuid>=0.2.0

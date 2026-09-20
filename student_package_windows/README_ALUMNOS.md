@@ -6,7 +6,7 @@ Sistema de logística con Cassandra: órdenes, productos y envíos.
 
 - Python 3.8 o superior
 - Docker (para Cassandra)
-- El ejecutable `validate` en la carpeta `student_package/` (incluido en el paquete)
+- El ejecutable `validate` en la carpeta `student_package/` (incluido en el paquete de tu SO)
 
 ## 1. Configurar el entorno
 
@@ -29,15 +29,23 @@ pip install -r requirements.txt
 
 ### Iniciar Cassandra
 
-```bash
-# Crear y arrancar el contenedor (primera vez)
-docker run --name logistics -p 9042:9042 -d cassandra
+Con Docker Compose (recomendado):
 
-# Si ya existe el contenedor, solo iniciarlo
+```bash
+docker compose up -d
+# Espera a que el healthcheck pase (puede tardar ~1 min la primera vez)
+docker compose ps
+```
+
+O con `docker run`:
+
+```bash
+docker run --name logistics -p 9042:9042 -d cassandra
+# Si ya existe el contenedor:
 docker start logistics
 ```
 
-Espera unos segundos después de `docker start` para que Cassandra esté listo.
+Espera unos segundos (o hasta ~1 minuto la primera vez) para que Cassandra esté listo.
 
 ## 2. Ejecutar la aplicación
 
@@ -56,25 +64,27 @@ La aplicación muestra un menú interactivo:
 
 ## 3. Validar tu implementación
 
-Ejecuta el validador desde la carpeta del proyecto (donde están `app.py` y `model.py`):
+Usa el paquete correspondiente a tu sistema operativo:
+
+| Sistema | Carpeta / artefacto | Cómo ejecutar |
+|---------|---------------------|---------------|
+| macOS (Apple Silicon o Intel) | `student_package/` con wrapper | `./student_package/validate` |
+| Linux | `student_package/` | `./student_package/validate` |
+| Windows | `student_package/` | `.\student_package\validate.exe` |
+
+En **macOS** el paquete incluye `validate` (script), `validate-arm64` y `validate-x86_64`. Ejecuta siempre el wrapper:
 
 ```bash
-# Validar y ver el resultado en pantalla
 ./student_package/validate
-
-# En Windows:
-.\student_package\validate.exe
 ```
 
-**Importante**: Ejecuta desde la carpeta raíz del proyecto. La carpeta `student_package/` debe estar junto a `app.py` y `model.py`.
+**Importante**: Ejecuta desde la carpeta raíz del proyecto (donde están `app.py` y `model.py`).
 
 ### Guardar el reporte para entrega
 
 ```bash
 ./student_package/validate --output report.txt
 ```
-
-Se genera `report.txt` con el resultado y un hash para verificar que no fue modificado.
 
 ### Verificar integridad del reporte
 
@@ -83,8 +93,6 @@ Se genera `report.txt` con el resultado y un hash para verificar que no fue modi
 ```
 
 ## 4. Interpretar el resultado
-
-El validador muestra algo como:
 
 ```
 === Logistics App Report ===
@@ -97,18 +105,18 @@ SHA256:abc123...
 ```
 
 - **Passed: X/10**: Número de opciones correctas.
-- **PASS**: La opción cumple la validación.
-- **FAIL**: La opción falla (aparece el motivo).
+- **PASS** / **FAIL**: Resultado de cada opción (en FAIL aparece el motivo).
 - **SHA256**: Hash para comprobar que el reporte no fue alterado.
 
 ## 5. Solución de problemas
 
 | Problema | Posible solución |
 |----------|------------------|
-| "Could not connect to Cassandra" | Revisa que Docker esté en marcha y `logistics` corriendo. |
-| "No module named 'cassandra'" | Ejecuta `pip install -r requirements.txt`. |
-| "./student_package/validate: Permission denied" | En Linux/Mac: `chmod +x student_package/validate`. |
-| "No orders found" | Ejecuta primero la opción 0 en la app para poblar datos. |
+| `bad CPU type in executable` | Tienes un binario Mac de otra arquitectura. Usa el **paquete macOS completo** (`validate` + `validate-arm64` + `validate-x86_64`) y ejecuta `./student_package/validate`, no un solo binario suelto. |
+| "Could not connect to Cassandra" | Revisa que Docker esté en marcha y el contenedor `logistics` healthy. |
+| "No module named 'cassandra'" | Ejecuta `pip install -r requirements.txt` con el venv activo. |
+| "Permission denied" | En Linux/Mac: `chmod +x student_package/validate student_package/validate-*`. |
+| "No orders found" | Ejecuta primero la opción 0 en la app para poblar datos (el validador también lo intenta solo). |
 
 ## Archivos del proyecto
 
@@ -117,4 +125,5 @@ SHA256:abc123...
 | `app.py` | Aplicación principal (menú). |
 | `model.py` | Modelo de datos y consultas a Cassandra. |
 | `requirements.txt` | Dependencias de Python. |
+| `docker-compose.yml` | Cassandra local. |
 | `student_package/validate` | Validador (no modificar). |
