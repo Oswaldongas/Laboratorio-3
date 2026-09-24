@@ -131,6 +131,7 @@ def main():
 
         elif option == 9:
             print("Exiting logistics application...")
+            cluster.shutdown()
             sys.exit(0)
 
         else:

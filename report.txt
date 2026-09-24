@@ -1,0 +1,14 @@
+=== Logistics App Report ===
+Passed: 10/10
+
+PASS - Option 0 - Populate sample data
+PASS - Option 1 - Orders by customer
+PASS - Option 2 - Products by order
+PASS - Option 3 - Shipments by order
+PASS - Option 4 - Shipments by order with date range
+PASS - Option 5 - Shipments by status with date range
+PASS - Option 6 - Shipments by type with date range
+PASS - Option 7 - Shipments by type and status with date range
+PASS - Option 8 - Change email
+PASS - Option 9 - Exit
+SHA256:4e32005f5c1d7744bbd969d070bfd1af1d423545b72d9c11169a68c32efd8666
