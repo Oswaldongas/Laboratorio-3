@@ -29,6 +29,9 @@ CREATE_ORDERS_BY_CUSTOMERS_TABLE = """
 """
 
 # Q2: products_by_order
+# PK: order_number (todos los productos de una orden viven en la misma partición)
+# CK: price DESC para cumplir el ordenamiento; product_name evita sobreescrituras
+#     cuando dos productos de la misma orden cuestan lo mismo.
 CREATE_PRODUCTS_BY_ORDER_TABLE = """
     CREATE TABLE IF NOT EXISTS products_by_order (
         order_number TEXT,
@@ -41,6 +44,8 @@ CREATE_PRODUCTS_BY_ORDER_TABLE = """
 """
 
 # Q3.1 & Q3.2: shipments_by_o_sd
+# PK: order_number
+# CK: shipment_date DESC (orden + rango de fechas); tracking_number desempata.
 CREATE_SHIPMENTS_BY_O_SD_TABLE = """
     CREATE TABLE IF NOT EXISTS shipments_by_o_sd (
         order_number TEXT,
@@ -55,6 +60,8 @@ CREATE_SHIPMENTS_BY_O_SD_TABLE = """
 """
 
 # Q3.3: shipments_by_o_ssd
+# PK compuesta: (order_number, status) -> el filtro por status es igualdad sobre la partición
+# CK: shipment_date DESC permite el rango opcional de fechas.
 CREATE_SHIPMENTS_BY_O_SSD_TABLE = """
     CREATE TABLE IF NOT EXISTS shipments_by_o_ssd (
         order_number TEXT,
@@ -69,6 +76,7 @@ CREATE_SHIPMENTS_BY_O_SSD_TABLE = """
 """
 
 # Q3.4: shipments_by_o_tsd
+# PK compuesta: (order_number, type)
 CREATE_SHIPMENTS_BY_O_TSD_TABLE = """
     CREATE TABLE IF NOT EXISTS shipments_by_o_tsd (
         order_number TEXT,
@@ -83,6 +91,7 @@ CREATE_SHIPMENTS_BY_O_TSD_TABLE = """
 """
 
 # Q3.5: shipments_by_o_tssd
+# PK compuesta: (order_number, type, status)
 CREATE_SHIPMENTS_BY_O_TSSD_TABLE = """
     CREATE TABLE IF NOT EXISTS shipments_by_o_tssd (
         order_number TEXT,
@@ -95,6 +104,7 @@ CREATE_SHIPMENTS_BY_O_TSSD_TABLE = """
         PRIMARY KEY ((order_number, type, status), shipment_date, tracking_number)
     ) WITH CLUSTERING ORDER BY (shipment_date DESC, tracking_number ASC)
 """
+
 
 # Query statements 
 # Q1
@@ -150,6 +160,25 @@ SELECT_SHIPMENTS_BY_ORDER_TYPE_STATUS = """
       AND shipment_date >= minTimeUuid(?) AND shipment_date <= maxTimeUuid(?)
 """
 
+# Variantes sin rango de fecha (el filtro de fecha es opcional en Q3.3 - Q3.5)
+SELECT_SHIPMENTS_BY_ORDER_STATUS_NO_DATE = """
+    SELECT order_number, toDate(shipment_date) as shipment_date_readable, tracking_number, status, type, total_amount, customer_name
+    FROM shipments_by_o_ssd
+    WHERE order_number = ? AND status = ?
+"""
+
+SELECT_SHIPMENTS_BY_ORDER_TYPE_NO_DATE = """
+    SELECT order_number, toDate(shipment_date) as shipment_date_readable, tracking_number, status, type, total_amount, customer_name
+    FROM shipments_by_o_tsd
+    WHERE order_number = ? AND type = ?
+"""
+
+SELECT_SHIPMENTS_BY_ORDER_TYPE_STATUS_NO_DATE = """
+    SELECT order_number, toDate(shipment_date) as shipment_date_readable, tracking_number, status, type, total_amount, customer_name
+    FROM shipments_by_o_tssd
+    WHERE order_number = ? AND type = ? AND status = ?
+"""
+
 # Inserts de envíos: mismo orden de columnas para las 4 tablas,
 # así la misma tupla de datos sirve para todas.
 INSERT_SHIPMENT = """
@@ -157,7 +186,7 @@ INSERT_SHIPMENT = """
     VALUES (?, ?, ?, ?, ?, ?, ?)
 """
 SHIPMENT_TABLES = ['shipments_by_o_sd', 'shipments_by_o_ssd', 'shipments_by_o_tsd', 'shipments_by_o_tssd']
- 
+
 
 # Sample data
 CUSTOMERS = [
@@ -193,25 +222,31 @@ SHIPMENT_TYPES = ['Standard', 'Express', 'Same-day']
 
 # Get date range from user input or use default (last 30 days)
 # Default to last 30 days if not provided
-def get_date_range():
-    """Pide fecha inicial y final (YYYY-MM-DD). Si se dejan vacías usa los últimos 30 días.
+# Si optional=True y ambas fechas se dejan vacías, regresa (None, None) = sin filtro de fecha
+def get_date_range(optional=False):
+    """Pide fecha inicial y final (YYYY-MM-DD).
     Devuelve datetimes: inicio a las 00:00:00 y fin a las 23:59:59.999 para que el rango sea inclusivo."""
     today = datetime.date.today()
     default_start = today - datetime.timedelta(days=30)
- 
-    start_str = input(f'Start date (YYYY-MM-DD) [{default_start}]: ').strip()
-    end_str = input(f'End date (YYYY-MM-DD) [{today}]: ').strip()
- 
+
+    hint = "blank = no date filter" if optional else f"blank = {default_start} to {today}"
+    print(f"\nDate range (YYYY-MM-DD), {hint}")
+    start_str = input('Start date: ').strip()
+    end_str = input('End date: ').strip()
+
+    if optional and not start_str and not end_str:
+        return None, None
+
     try:
         start = datetime.date.fromisoformat(start_str) if start_str else default_start
         end = datetime.date.fromisoformat(end_str) if end_str else today
     except ValueError:
         print("Invalid date format, using last 30 days.")
         start, end = default_start, today
- 
+
     if start > end:
         start, end = end, start
- 
+
     start_dt = datetime.datetime.combine(start, datetime.time.min)
     end_dt = datetime.datetime.combine(end, datetime.time(23, 59, 59, 999000))
     return start_dt, end_dt
@@ -227,6 +262,8 @@ def execute_batch(session, stmt, data):
 def bulk_insert(session):
     # Prepare statements
     orders_stmt = session.prepare("INSERT INTO orders_by_customers (email, order_date, name, order_number, total_amount, status) VALUES (?, ?, ?, ?, ?, ?)")
+    products_stmt = session.prepare("INSERT INTO products_by_order (order_number, price, product_name, category, quantity) VALUES (?, ?, ?, ?, ?)")
+    shipment_stmts = [session.prepare(INSERT_SHIPMENT.format(table)) for table in SHIPMENT_TABLES]
     
     orders_num = 100
     products_per_order = 3
@@ -266,9 +303,11 @@ def bulk_insert(session):
     
     # Execute batch inserts
     execute_batch(session, orders_stmt, orders_data)
+    execute_batch(session, products_stmt, products_data)
     
     # Insert into all shipment tables (same data, same order)
-    # ADD EXECUTE STATEMENTS
+    for stmt in shipment_stmts:
+        execute_batch(session, stmt, shipments_data)
 
 def random_date(start_date, end_date):
     """Generate a random date between start_date and end_date"""
@@ -285,7 +324,11 @@ def create_keyspace(session, keyspace, replication_factor):
 def create_schema(session):
     log.info("Creating logistics schema")
     session.execute(CREATE_ORDERS_BY_CUSTOMERS_TABLE)
-    # ADD CREATE TABLES
+    session.execute(CREATE_PRODUCTS_BY_ORDER_TABLE)
+    session.execute(CREATE_SHIPMENTS_BY_O_SD_TABLE)
+    session.execute(CREATE_SHIPMENTS_BY_O_SSD_TABLE)
+    session.execute(CREATE_SHIPMENTS_BY_O_TSD_TABLE)
+    session.execute(CREATE_SHIPMENTS_BY_O_TSSD_TABLE)
 
 # Q1: Get orders by customer
 def get_orders_by_customer(session, email):
@@ -307,12 +350,12 @@ def get_products_by_order(session, order_number):
     log.info(f"Retrieving products for order: {order_number}")
     stmt = session.prepare(SELECT_PRODUCTS_BY_ORDER)
     rows = list(session.execute(stmt, [order_number]))
- 
+
     print(f"\n=== Products for order: {order_number} ===")
     if not rows:
         print("No products found for this order.")
         return
- 
+
     total = 0
     for row in rows:
         subtotal = float(row.price) * row.quantity
@@ -324,7 +367,7 @@ def get_products_by_order(session, order_number):
         print(f"  - Subtotal: ${subtotal:,.2f}")
         print()
     print(f"Order total: ${total:,.2f}")
- 
+
 def print_shipments(rows, title):
     rows = list(rows)
     print(f"\n=== {title} ===")
@@ -340,38 +383,55 @@ def print_shipments(rows, title):
         print(f"  - Amount: ${row.total_amount:,.2f}")
         print()
     print(f"Total shipments: {len(rows)}")
- 
+
 # Q3.1: Get all shipments by order (no date filter)
 def get_shipments_by_order(session, order_number):
     log.info(f"Retrieving all shipments for order: {order_number}")
     stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER)
     rows = session.execute(stmt, [order_number])
     print_shipments(rows, f"Shipments for order: {order_number}")
- 
+
 # Q3.2: Same as Q3.1 (with explicit date range)
 def get_shipments_by_order_date_range(session, order_number, start_date, end_date):
     log.info(f"Retrieving shipments for order {order_number} between {start_date} and {end_date}")
     stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER_DATE_RANGE)
     rows = session.execute(stmt, [order_number, start_date, end_date])
     print_shipments(rows, f"Shipments for order {order_number} ({start_date.date()} to {end_date.date()})")
- 
-# Q3.3: Get shipments by order and status with date range
-def get_shipments_by_order_status(session, order_number, status, start_date, end_date):
+
+def range_label(start_date, end_date):
+    if start_date is None:
+        return "all dates"
+    return f"{start_date.date()} to {end_date.date()}"
+
+# Q3.3: Get shipments by order and status with date range (fecha opcional)
+def get_shipments_by_order_status(session, order_number, status, start_date=None, end_date=None):
     log.info(f"Retrieving shipments for order {order_number} with status {status}")
-    stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER_STATUS)
-    rows = session.execute(stmt, [order_number, status, start_date, end_date])
-    print_shipments(rows, f"Shipments for order {order_number} | status={status} ({start_date.date()} to {end_date.date()})")
- 
-# Q3.4: Get shipments by order and type with date range
-def get_shipments_by_order_type(session, order_number, ship_type, start_date, end_date):
+    if start_date is not None:
+        stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER_STATUS)
+        rows = session.execute(stmt, [order_number, status, start_date, end_date])
+    else:
+        stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER_STATUS_NO_DATE)
+        rows = session.execute(stmt, [order_number, status])
+    print_shipments(rows, f"Shipments for order {order_number} | status={status} ({range_label(start_date, end_date)})")
+
+# Q3.4: Get shipments by order and type with date range (fecha opcional)
+def get_shipments_by_order_type(session, order_number, ship_type, start_date=None, end_date=None):
     log.info(f"Retrieving shipments for order {order_number} with type {ship_type}")
-    stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER_TYPE)
-    rows = session.execute(stmt, [order_number, ship_type, start_date, end_date])
-    print_shipments(rows, f"Shipments for order {order_number} | type={ship_type} ({start_date.date()} to {end_date.date()})")
- 
-# Q3.5: Get shipments by order, type and status with date range
-def get_shipments_by_order_type_status(session, order_number, ship_type, status, start_date, end_date):
+    if start_date is not None:
+        stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER_TYPE)
+        rows = session.execute(stmt, [order_number, ship_type, start_date, end_date])
+    else:
+        stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER_TYPE_NO_DATE)
+        rows = session.execute(stmt, [order_number, ship_type])
+    print_shipments(rows, f"Shipments for order {order_number} | type={ship_type} ({range_label(start_date, end_date)})")
+
+# Q3.5: Get shipments by order, type and status with date range (fecha opcional)
+def get_shipments_by_order_type_status(session, order_number, ship_type, status, start_date=None, end_date=None):
     log.info(f"Retrieving shipments for order {order_number} with type {ship_type} and status {status}")
-    stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER_TYPE_STATUS)
-    rows = session.execute(stmt, [order_number, ship_type, status, start_date, end_date])
-    print_shipments(rows, f"Shipments for order {order_number} | type={ship_type}, status={status} ({start_date.date()} to {end_date.date()})")
+    if start_date is not None:
+        stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER_TYPE_STATUS)
+        rows = session.execute(stmt, [order_number, ship_type, status, start_date, end_date])
+    else:
+        stmt = session.prepare(SELECT_SHIPMENTS_BY_ORDER_TYPE_STATUS_NO_DATE)
+        rows = session.execute(stmt, [order_number, ship_type, status])
+    print_shipments(rows, f"Shipments for order {order_number} | type={ship_type}, status={status} ({range_label(start_date, end_date)})")

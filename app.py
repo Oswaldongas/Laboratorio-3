@@ -89,22 +89,42 @@ def main():
             model.get_orders_by_customer(session, customer_email)
 
         elif option == 2:
-            pass
+            order_number = get_order_number()
+            print(f"\nQ2: Getting products for order: {order_number}")
+            model.get_products_by_order(session, order_number)
 
         elif option == 3:
-            pass
+            order_number = get_order_number()
+            print(f"\nQ3.1: Getting all shipments for order: {order_number}")
+            model.get_shipments_by_order(session, order_number)
 
         elif option == 4:
-            pass
+            order_number = get_order_number()
+            start_date, end_date = model.get_date_range()
+            print(f"\nQ3.2: Getting shipments for order {order_number} by date range")
+            model.get_shipments_by_order_date_range(session, order_number, start_date, end_date)
 
         elif option == 5:
-            pass
+            order_number = get_order_number()
+            status = get_shipment_status()
+            start_date, end_date = model.get_date_range(optional=True)
+            print(f"\nQ3.3: Getting shipments for order {order_number} with status {status}")
+            model.get_shipments_by_order_status(session, order_number, status, start_date, end_date)
 
         elif option == 6:
-            pass
+            order_number = get_order_number()
+            ship_type = get_shipment_type()
+            start_date, end_date = model.get_date_range(optional=True)
+            print(f"\nQ3.4: Getting shipments for order {order_number} with type {ship_type}")
+            model.get_shipments_by_order_type(session, order_number, ship_type, start_date, end_date)
 
         elif option == 7:
-            pass
+            order_number = get_order_number()
+            ship_type = get_shipment_type()
+            status = get_shipment_status()
+            start_date, end_date = model.get_date_range(optional=True)
+            print(f"\nQ3.5: Getting shipments for order {order_number} with type {ship_type} and status {status}")
+            model.get_shipments_by_order_type_status(session, order_number, ship_type, status, start_date, end_date)
 
         elif option == 8:
             customer_email = set_customer_email()
